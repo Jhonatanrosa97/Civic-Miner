@@ -1,4 +1,4 @@
-# 📄 IPM Sistemas Scraper - Aplicação Web
+# 📄 CivicMiner - Aplicação Web
 
 Uma aplicação web para baixar contratos automaticamente do portal de transparência de São José/SC.
 
@@ -101,7 +101,7 @@ ipm-sistemas-scraper/
 ## 📝 Notas
 
 - O scraper busca automaticamente o contrato **89/2022**
-- Fornecedor: **IPM SISTEMAS LTDA**
+- Fornecedor: **[nome do fornecedor configurado]**
 - Anos: **2020-2025**
 - Baixa apenas PDFs do tipo **Impressão**
 

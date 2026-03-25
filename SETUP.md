@@ -1,4 +1,4 @@
-# 🚀 IPM Scraper - Guia de Uso
+# 🚀 CivicMiner - Guia de Uso
 
 ## Instalação
 
@@ -46,17 +46,17 @@ Testa automaticamente com múltiplas cidades (São José, Palhoça, Brusque).
 ## Estrutura de Arquivos
 
 ```
-ipm-sistemas-scraper/
+civicminer/
 ├── app.py                    # Servidor Flask (web)
 ├── main.py                   # Entrada principal
 ├── config.json               # Configuração de cidade/filtros
 ├── test_scraper.py           # Script de teste automatizado
 ├── requirements.txt          # Dependências Python
 ├── scripts/
-│   ├── ipm_scraper.py        # Lógica do Selenium
+│   ├── ipm_scraper.py        # Engine de automação (Selenium)
 │   └── __pycache__/
 ├── templates/
-│   └── index.html            # Interface web
+│   └── index.html            # Interface web (CivicMiner)
 ├── Downloads_PDFs/           # Pasta de downloads
 ├── logs/                     # Logs de execução
 └── README.md                 # Este arquivo
