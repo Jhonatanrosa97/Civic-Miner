@@ -1,0 +1,11 @@
+{
+    "url": "https://saojose.atende.net/transparencia/item/contratos-gerais",
+    "driver_path": "C:/Users/jhonatan.oliveira/Documents/ipm-sistemas-scraper/chromedriver.exe",
+    "download_dir": "C:/Users/jhonatan.oliveira/Downloads",
+    "search_filters": {
+        "fornecedor": "IPM",
+        "start_year": 2020,
+        "end_year": 2025
+    },
+    "chrome_binary": "C:/Program Files/Google/Chrome/Application/chrome.exe"
+}

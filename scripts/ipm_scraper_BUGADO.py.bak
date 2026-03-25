@@ -1,0 +1,1363 @@
+import json
+import traceback
+import re
+import unicodedata
+from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+import time
+import os
+
+def remove_acentos(text):
+    """Remove acentos de um texto para comparação"""
+    if not text:
+        return ""
+    nfd = unicodedata.normalize('NFD', text)
+    return ''.join(c for c in nfd if unicodedata.category(c) != 'Mn')
+
+class Scraper:
+    def __init__(self, config_path):
+        try:
+            print("Carregando configurações do config.json...")
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Arquivo de configuração não encontrado: {config_path}")
+            
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    self.config = json.load(f)
+            except json.JSONDecodeError as je:
+                print(f"ERRO no arquivo JSON: {je}")
+                print(f"Verifique o arquivo {config_path}")
+                raise
+            except Exception as e:
+                print(f"Erro ao ler o arquivo de configuração: {e}")
+                raise
+
+            print("Inicializando o ChromeDriver...")
+            
+            # Define a pasta de downloads
+            downloads_folder = os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                "Downloads_PDFs"
+            )
+            os.makedirs(downloads_folder, exist_ok=True)
+            print(f"Pasta de downloads: {downloads_folder}")
+            
+            driver_path = self.config["driver_path"]
+            if not os.path.exists(driver_path):
+                raise FileNotFoundError(f"ChromeDriver não encontrado em: {driver_path}")
+            
+            chrome_options = webdriver.ChromeOptions()
+            chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_experimental_option("useAutomationExtension", False)
+            chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            
+            # Configura o download para ir direto para a pasta Downloads_PDFs
+            prefs = {
+                "download.default_directory": downloads_folder,
+                "download.prompt_for_download": False,
+                "download.directory_upgrade": True,
+                "safebrowsing.enabled": True,
+            }
+            chrome_options.add_experimental_option("prefs", prefs)
+
+            service = Service(driver_path)
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            print("ChromeDriver iniciado com sucesso!")
+
+        except Exception as e:
+            print("Erro ao iniciar o Scraper:", e)
+            traceback.print_exc()
+            raise
+
+    def acessar_portal(self):
+        try:
+            url = self.config["url"]
+            print(f"Acessando o site: {url}")
+            
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    self.driver.get(url)
+                    print("Página carregada com sucesso!")
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"Tentativa {attempt + 1} falhou: {e}")
+                        print(f"Tentando novamente em 2 segundos...")
+                        time.sleep(2)
+                    else:
+                        raise
+
+            # Aguarda a página carregar completamente
+            time.sleep(2)
+
+            wait = WebDriverWait(self.driver, 120)
+
+            # Aguarda o CAPTCHA ser resolvido detectando quando o iframe aparece
+            print("\n" + "="*60)
+            print("[AVISO]  AGUARDANDO RESOLUÇÃO DO CAPTCHA")
+            print("   Se aparecer um CAPTCHA na tela:")
+            print("   1. Resolva-o manualmente")
+            print("   2. O scraper continuará automaticamente")
+            print("="*60 + "\n")
+            
+            # Tenta aguardar o iframe aparecer (significa CAPTCHA resolvido)
+            captcha_timeout = 180  # 3 minutos de timeout
+            try:
+                print("Aguardando iframe aparecer (CAPTCHA ser resolvido)...")
+                iframe = wait.until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+                print("[OK] CAPTCHA resolvido! Continuando...\n")
+            except Exception as e:
+                print(f"Timeout aguardando iframe. Tentando continuar mesmo assim...")
+                # Continua mesmo se não encontrar iframe
+                time.sleep(2)
+
+            wait = WebDriverWait(self.driver, 120)
+            try:
+                print("Verificando se o popup de cookies está presente...")
+                btn_aceitar = wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Aceitar')]"))
+                )
+                btn_aceitar.click()
+                print("Popup de cookies aceito!")
+                time.sleep(1)
+            except Exception:
+                print("Popup de cookies não encontrado ou já aceito.")
+
+            # Trata banners/notificações
+            print("Tratando banners/notificações...")
+            time.sleep(0.3)
+            try:
+                try:
+                    botao_fechar = self.driver.find_element(By.XPATH, "//div[contains(@class, 'wrapper-aviso')]//button | //div[contains(@class, 'wrapper-aviso')]//*[@role='button']")
+                    print("  Botão de fechar encontrado, clicando...")
+                    self.driver.execute_script("arguments[0].style.visibility='visible'; arguments[0].click();", botao_fechar)
+                    print("  [OK] Banner fechado")
+                    time.sleep(0.5)
+                except Exception as e:
+                    print(f"  Botão não encontrado: {str(e)[:50]}")
+                    try:
+                        self.driver.execute_script("""
+                            var wrapper = document.querySelector('.wrapper-aviso');
+                            if (wrapper) {
+                                wrapper.style.display = 'none';
+                                console.log('Wrapper escondido');
+                            }
+                        """)
+                        print("  [OK] Wrapper escondido via CSS")
+                        time.sleep(0.3)
+                    except Exception as e2:
+                        print(f"  Erro ao esconder: {e2}")
+            except Exception as e:
+                print(f"  Erro ao tratar banner: {e}")
+
+            # Trocando para o iframe
+            try:
+                print("Trocando para o iframe...")
+                iframe = self.driver.find_element(By.TAG_NAME, "iframe")
+                self.driver.switch_to.frame(iframe)
+                print("✓ Dentro do iframe!")
+            except Exception as e:
+                print(f"Erro ao encontrar iframe: {e}")
+                raise
+
+            # Seleciona o filtro "Fornecedor - Nome Razão"
+            print("Aguardando o filtro aparecer...")
+            filtro_select = wait.until(EC.visibility_of_element_located((By.NAME, "filtro")))
+            select = Select(filtro_select)
+            select.select_by_value("uninomerazao")
+            print('Filtro alterado para "Fornecedor - Nome Razão".')
+
+            # Seleciona a Unidade Gestora ANTES do ano
+            print("\n" + "="*60)
+            print("SELECIONANDO UNIDADE GESTORA...")
+            print("="*60)
+            
+            try:
+                print("\nEstrategia: Clicar DIRETO no checkbox do MUNICIPIO sem abrir dropdown\n")
+                
+                # Executa TUDO em JavaScript - sem clicar no campo de input
+                resultado = self.driver.execute_script("""
+                    // 1. Encontra o checkbox do MUNICIPIO/PREFEITURA
+                    var checkboxes = document.querySelectorAll('input[type="checkbox"][data-valor-lista]');
+                    var municipio_checkbox = null;
+                    var municipio_label = null;
+                    
+                    for(var i = 0; i < checkboxes.length; i++) {
+                        var cb = checkboxes[i];
+                        var ariaLabel = cb.getAttribute('aria-label') || '';
+                        var label_upper = ariaLabel.toUpperCase();
+                        
+                        // Remove acentos
+                        var labelSemAcentos = label_upper
+                            .replace(/[ÀÁÂÃÄÅ]/g, 'A')
+                            .replace(/[ÈÉÊË]/g, 'E')
+                            .replace(/[ÌÍÎÏ]/g, 'I')
+                            .replace(/[ÒÓÔÕÖ]/g, 'O')
+                            .replace(/[ÙÚÛÜ]/g, 'U')
+                            .replace(/[Ç]/g, 'C');
+                        
+                        console.log('[' + i + '] ' + ariaLabel + ' -> ' + labelSemAcentos);
+                        
+                        // Se começa com MUNICIPIO ou PREFEITURA (sem ANTI, FUNDO, etc)
+                        if((labelSemAcentos.startsWith('MUNICIPIO') || labelSemAcentos.startsWith('PREFEITURA')) &&
+                           !labelSemAcentos.includes('ANTI') &&
+                           !labelSemAcentos.includes('FUNDO') &&
+                           !labelSemAcentos.includes('FUNDACAO') &&
+                           !labelSemAcentos.includes('SECRETARIA')) {
+                            console.log('>>> ENCONTROU MUNICIPIO! ' + ariaLabel);
+                            municipio_checkbox = cb;
+                            municipio_label = ariaLabel;
+                            break;  // Para no primeiro encontrado
+                        }
+                    }
+                    
+                    if(!municipio_checkbox) {
+                        return 'ERRO: Nenhum municipio encontrado';
+                    }
+                    
+                    // 2. Clica no checkbox SEM deixar dropdown abrir
+                    console.log('Clicando no checkbox do municipio...');
+                    municipio_checkbox.checked = true;
+                    municipio_checkbox.click();
+                    
+                    // 3. Dispara eventos de mudança
+                    var changeEvent = new Event('change', { bubbles: true, cancelable: true });
+                    municipio_checkbox.dispatchEvent(changeEvent);
+                    
+                    return 'OK: ' + municipio_label;
+                """)
+                
+                print(f"[OK] {resultado}")
+                time.sleep(1)
+                
+                # Fecha o dropdown clicando em outro lugar (se abriu)
+                print("\nFechando dropdown (clicando fora)...")
+                try:
+                    self.driver.find_element(By.TAG_NAME, "body").click()
+                except:
+                    pass
+                time.sleep(0.5)
+                
+                print("[OK] Unidade Gestora selecionada com sucesso!")
+                    
+            except Exception as e:
+                print(f"\n[ERRO] Erro ao selecionar Unidade Gestora: {e}")
+                import traceback
+                traceback.print_exc()
+                print("\n[AVISO] Continuando sem Unidade Gestora...")
+            
+            print("="*60 + "\n")
+
+            # Seleciona todos os anos
+            print("Aguardando o campo de ano do contrato aparecer...")
+            campo_ano_contrato = wait.until(EC.element_to_be_clickable((By.NAME, "ano_contrato_superior")))
+            campo_ano_contrato.click()
+            print("Campo de ano clicado.")
+
+            time.sleep(1)
+
+            for ano in range(2020, 2026):
+                print(f"Selecionando o ano {ano}...")
+                
+                try:
+                    avisos = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'wrapper-aviso') or contains(@class, 'aviso')]")
+                    for aviso in avisos:
+                        try:
+                            botao_fechar = aviso.find_element(By.XPATH, ".//button | .//a[contains(@class, 'close')]")
+                            self.driver.execute_script("arguments[0].click();", botao_fechar)
+                            print("  Aviso fechado.")
+                        except:
+                            self.driver.execute_script("arguments[0].remove();", aviso)
+                            print("  Aviso removido via JavaScript.")
+                except:
+                    pass
+                
+                time.sleep(0.3)
+                
+                checkbox_xpath = f"//input[@type='checkbox' and @data-valor-lista='{ano}']"
+                checkbox = wait.until(EC.element_to_be_clickable((By.XPATH, checkbox_xpath)))
+                
+                self.driver.execute_script("arguments[0].click();", checkbox)
+                    except Exception as e:
+                        print(f"  Falhou: {e}")
+                
+                # Tentativa 3: Procura qualquer input com name clicodigo
+                if not campo_unidade:
+                    try:
+                        print("Tentativa 3: Procurando qualquer input clicodigo...")
+                        campo_unidade = self.driver.find_element(By.NAME, "clicodigo")
+                        print("[OK] Encontrado!")
+                    except Exception as e:
+                        print(f"  Falhou: {e}")
+                
+                if not campo_unidade:
+                    print("[ERRO] Campo não encontrado com nenhum método!")
+                    raise Exception("Campo Unidade Gestora não encontrado")
+                
+                # Clica no campo
+                print("\nClicando no campo...")
+                
+                # Tenta clicar de várias formas SEM SCROLL
+                clicked = False
+                
+                # Método 1: JavaScript click direto (sem scroll)
+                try:
+                    self.driver.execute_script("arguments[0].click();", campo_unidade)
+                    print("[OK] Clicado via JavaScript")
+                    clicked = True
+                except Exception as e:
+                    print(f"  Clique JS falhou: {e}")
+                
+                # Método 2: Selenium click
+                if not clicked:
+                    try:
+                        campo_unidade.click()
+                        print("[OK] Clicado via Selenium")
+                        clicked = True
+                    except Exception as e:
+                        print(f"  Clique Selenium falhou: {e}")
+                
+                if not clicked:
+                    print("[ERRO] Não conseguiu clicar!")
+                    raise Exception("Não conseguiu clicar no campo")
+                
+                print("Aguardando dropdown abrir completamente...")
+                time.sleep(2)
+                
+                # Garante que o dropdown está visível
+                self.driver.execute_script("""
+                    var dropdowns = document.querySelectorAll('.lista_opcoes_busca_multipla');
+                    dropdowns.forEach(function(d) {
+                        d.style.visibility = 'visible';
+                        d.style.display = 'block';
+                    });
+                """)
+                time.sleep(1)
+                
+                # Procura pelos checkboxes VISÍVEIS
+                print("\nProcurando opções VISÍVEIS de Unidade Gestora...")
+                
+                opcoes = self.driver.execute_script("""
+                    var checkboxes = document.querySelectorAll('input[type="checkbox"][data-valor-lista]');
+                    var visiveis = [];
+                    for(var i = 0; i < checkboxes.length; i++) {
+                        var checkbox = checkboxes[i];
+                        // Verifica se está visível (não filtra por conteúdo, pega todos visíveis)
+                        if(checkbox.offsetParent !== null && checkbox.offsetHeight > 0) {
+                            visiveis.push(checkbox);
+                        }
+                    }
+                    return visiveis;
+                """)
+                
+                print(f"[OK] Encontradas {len(opcoes)} opções de Unidade Gestora visíveis\n")
+                
+                if len(opcoes) == 0:
+                    print("[AVISO] Nenhuma opção encontrada - talvez o dropdown não abriu")
+                    # Salva screenshot para debug
+                    self.driver.save_screenshot("debug_unidade_gestora_sem_opcoes.png")
+                    raise Exception("Nenhuma opção encontrada")
+                
+                # Lista TODAS as opções para debug
+                print("TODAS as opções disponíveis:")
+                todas_opcoes_info = []
+                debug_output = []
+                
+                for i, opcao in enumerate(opcoes):
+                    try:
+                        # Pega o aria-label do checkbox (onde está o texto correto)
+                        label = self.driver.execute_script("""
+                            var checkbox = arguments[0];
+                            return checkbox.getAttribute('aria-label') || '';
+                        """, opcao)
+                        
+                        msg1 = f"  [{i}] '{label}'"
+                        msg2 = f"       aria-label: '{label}'"
+                        msg3 = f"       UPPER: '{label.upper()}'"
+                        msg4 = f"       startswith MUNICIPIO? {label.upper().startswith('MUNICIPIO')}"
+                        msg5 = f"       startswith PREFEITURA? {label.upper().startswith('PREFEITURA')}"
+                        msg6 = f"       contem FUNDO? {'FUNDO' in label.upper()}"
+                        
+                        print(msg1)
+                        print(msg2)
+                        print(msg3)
+                        print(msg4)
+                        print(msg5)
+                        print(msg6)
+                        
+                        debug_output.extend([msg1, msg2, msg3, msg4, msg5, msg6])
+                        
+                        if label:
+                            todas_opcoes_info.append((i, label, opcao))
+                    except Exception as e:
+                        msg = f"  [{i}] ERRO ao obter label: {str(e)[:50]}"
+                        print(msg)
+                        debug_output.append(msg)
+                
+                # Salva debug output em arquivo
+                try:
+                    with open('debug_opcoes_municipios.txt', 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(debug_output))
+                except:
+                    pass
+                
+                # Estratégia diferente: procura pelo MUNICIPIO e clica ANTES do dropdown abrir
+                print("\nProcurando MUNICIPIO/PREFEITURA e clicando SEM ABRIR dropdown...")
+                
+                try:
+                    # Primeiro: encontra qual é o data-valor-lista do MUNICIPIO
+                    municipio_id = self.driver.execute_script("""
+                        var checkboxes = document.querySelectorAll('input[type="checkbox"][data-valor-lista]');
+                        
+                        for(var i = 0; i < checkboxes.length; i++) {
+                            var cb = checkboxes[i];
+                            var ariaLabel = cb.getAttribute('aria-label') || '';
+                            var label_upper = ariaLabel.toUpperCase();
+                            
+                            // Remove acentos
+                            var labelSemAcentos = label_upper
+                                .replace(/[ÀÁÂÃÄÅ]/g, 'A')
+                                .replace(/[ÈÉÊË]/g, 'E')
+                                .replace(/[ÌÍÎÏ]/g, 'I')
+                                .replace(/[ÒÓÔÕÖ]/g, 'O')
+                                .replace(/[ÙÚÛÜ]/g, 'U')
+                                .replace(/[Ç]/g, 'C');
+                            
+                            // Se começa com MUNICIPIO ou PREFEITURA (sem ANTI, FUNDO, etc)
+                            if((labelSemAcentos.startsWith('MUNICIPIO') || labelSemAcentos.startsWith('PREFEITURA')) &&
+                               !labelSemAcentos.includes('ANTI') &&
+                               !labelSemAcentos.includes('FUNDO') &&
+                               !labelSemAcentos.includes('FUNDACAO') &&
+                               !labelSemAcentos.includes('SECRETARIA')) {
+                                var id = cb.getAttribute('data-valor-lista');
+                                console.log('Encontrou MUNICIPIO com ID: ' + id + ' - ' + ariaLabel);
+                                return id;
+                            }
+                        }
+                        return null;
+                    """)
+                    
+                    if municipio_id:
+                        print(f"[OK] Encontrou MUNICIPIO com ID: {municipio_id}")
+                        
+                        # Segundo: clica direto no checkbox usando o ID, sem deixar dropdown abrir
+                        self.driver.execute_script(f"""
+                            // Clica direto no checkbox do municipio sem deixar dropdown abrir
+                            var checkbox = document.querySelector('input[data-valor-lista="{municipio_id}"]');
+                            if(checkbox) {{
+                                console.log('Clicando no checkbox do municipio (ID: {municipio_id})...');
+                                checkbox.checked = true;
+                                checkbox.click();
+                                
+                                // Dispara eventos
+                                var event = new Event('change', {{ bubbles: true, cancelable: true }});
+                                checkbox.dispatchEvent(event);
+                                
+                                var clickEvent = new MouseEvent('click', {{ bubbles: true, cancelable: true }});
+                                checkbox.dispatchEvent(clickEvent);
+                                
+                                console.log('Clique executado!');
+                            }}
+                        """)
+                        print(f"[OK] MUNICIPIO selecionado!")
+                        time.sleep(1)
+                    else:
+                        print("[AVISO] Não encontrou MUNICIPIO/PREFEITURA")
+                        
+                except Exception as e:
+                    print(f"[ERRO] {e}")
+                
+                # Fecha dropdown
+                self.driver.find_element(By.TAG_NAME, "body").click()
+                time.sleep(0.5)
+                
+                if selecionado:
+                    print("\n✅ Unidade Gestora selecionada com sucesso!")
+                else:
+                    print("\n[AVISO] Não encontrou/selecionou MUNICIPIO/PREFEITURA")
+                    
+            except Exception as e:
+                print(f"\n[ERRO] Erro ao selecionar Unidade Gestora: {e}")
+                import traceback
+                traceback.print_exc()
+                print("\n[AVISO] Continuando sem Unidade Gestora...")
+            
+            print("="*60 + "\n")
+
+            # Seleciona todos os anos
+            print("Aguardando o campo de ano do contrato aparecer...")
+            campo_ano_contrato = wait.until(EC.element_to_be_clickable((By.NAME, "ano_contrato_superior")))
+            campo_ano_contrato.click()
+            print("Campo de ano clicado.")
+
+            time.sleep(1)
+
+            for ano in range(2020, 2026):
+                print(f"Selecionando o ano {ano}...")
+                
+                try:
+                    avisos = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'wrapper-aviso') or contains(@class, 'aviso')]")
+                    for aviso in avisos:
+                        try:
+                            botao_fechar = aviso.find_element(By.XPATH, ".//button | .//a[contains(@class, 'close')]")
+                            self.driver.execute_script("arguments[0].click();", botao_fechar)
+                            print("  Aviso fechado.")
+                        except:
+                            self.driver.execute_script("arguments[0].remove();", aviso)
+                            print("  Aviso removido via JavaScript.")
+                except:
+                    pass
+                
+                time.sleep(0.3)
+                
+                checkbox_xpath = f"//input[@type='checkbox' and @data-valor-lista='{ano}']"
+                checkbox = wait.until(EC.element_to_be_clickable((By.XPATH, checkbox_xpath)))
+                
+                self.driver.execute_script("arguments[0].click();", checkbox)
+                print(f"Ano {ano} selecionado.")
+                time.sleep(0.2)
+
+            # Fecha o dropdown clicando fora
+            self.driver.find_element(By.TAG_NAME, "body").click()
+            time.sleep(0.5)
+            print("Dropdown de anos fechado.")
+
+            # Preenche a caixa de busca com "IPM"
+            print("Aguardando o campo de busca aparecer...")
+            campo_busca = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='campo01' and @type='text']")))
+            campo_busca.click()
+            time.sleep(0.2)
+            try:
+                campo_busca.clear()
+                campo_busca.send_keys("IPM SISTEMAS")
+                print('Texto "IPM SISTEMAS" inserido no campo de busca (via send_keys).')
+            except Exception:
+                print("Falha ao usar send_keys com 'IPM SISTEMAS', tentando com 'IPM'...")
+                try:
+                    campo_busca.clear()
+                    campo_busca.send_keys("IPM")
+                    print('Texto "IPM" inserido no campo de busca (via send_keys).')
+                except Exception:
+                    print("Falha novamente, tentando via JavaScript...")
+                    self.driver.execute_script("arguments[0].value = 'IPM SISTEMAS';", campo_busca)
+                    print('Texto "IPM SISTEMAS" inserido no campo de busca (via JS).')
+
+            # Clica no botão "Consultar"
+            print('Aguardando o botão "Consultar" aparecer...')
+            btn_consultar = wait.until(EC.element_to_be_clickable((
+                By.XPATH, "//span[contains(@class, 'botao-label') and text()='Consultar']/ancestor::*[self::button or self::div][1]"
+            )))
+            btn_consultar.click()
+            print('Consulta realizada!')
+
+            # Aguarda o carregamento "Aguarde" desaparecer
+            print('Aguardando o carregamento "Aguarde" desaparecer...')
+            wait.until(EC.invisibility_of_element_located((By.XPATH, "//*[contains(text(), 'Aguarde')]")))
+            print('Carregamento finalizado!')
+
+            # Força o desfoco do campo de busca
+            print('Removendo o foco do campo de busca...')
+            self.driver.execute_script("arguments[0].blur();", campo_busca)
+            time.sleep(0.2)
+            self.driver.find_element(By.TAG_NAME, "body").click()
+            time.sleep(0.5)
+
+            # ============================================================
+            # CÓDIGO CORRIGIDO - Localiza e EXPANDE a linha correta
+            # ============================================================
+            print("\n" + "="*60)
+            print("LOCALIZANDO E EXPANDINDO A LINHA CORRETA")
+            print("="*60)
+            
+            linha_desejada = None
+            seta_btn = None
+            
+            try:
+                # Pega TODAS as linhas de agrupamento de PRIMEIRO NÍVEL (Unidade Gestora)
+                print("\nBuscando todas as linhas de agrupamento de primeiro nível...")
+                
+                # Busca apenas linhas de agrupamento que NÃO estão dentro de outra linha expandida
+                # Isso pega apenas as linhas de "Unidade Gestora"
+                todas_as_linhas = wait.until(
+                    EC.presence_of_all_elements_located((
+                        By.XPATH, 
+                        "//table[@class='dados_consulta dados subcontexto_acessibilidade']/tbody/tr[contains(@class, 'linha_agrupamento')]"
+                    ))
+                )
+                
+                if todas_as_linhas:
+                    print(f"[OK] Encontradas {len(todas_as_linhas)} linhas de agrupamento\n")
+                    
+                    # Para DEBUG: mostra todas as linhas encontradas
+                    print("📋 TODAS AS LINHAS DISPONÍVEIS:")
+                    print("-" * 60)
+                    for i, linha in enumerate(todas_as_linhas):
+                        try:
+                            texto = linha.text.strip()
+                            print(f"[{i}] {texto[:150]}")
+                        except:
+                            print(f"[{i}] [Erro ao ler texto da linha]")
+                    print("-" * 60)
+                    
+                    # ESTRATÉGIA: Procura por MUNICIPIO DE ou PREFEITURA (o que foi selecionado na Unidade Gestora)
+                    print("\n🔍 Buscando linha com MUNICIPIO DE ou PREFEITURA...")
+                    
+                    for i, linha in enumerate(todas_as_linhas):
+                        try:
+                            texto_linha = linha.text.upper()
+                            
+                            print(f"  Linha [{i}]: {texto_linha[:80]}")
+                            
+                            # PRIMEIRO: Verifica se TEM termos de exclusão (FUNDO, SERVIÇO, etc)
+                            tem_exclusao = any(x in texto_linha for x in [
+                                "CAMARA", 
+                                "CÂMARA",
+                                "FUNDO",
+                                "SECRETARIA",
+                                "SERVICO",
+                                "SERVIÇO",
+                                "AUTONOMO",
+                                "AUTÔNOMO"
+                            ])
+                            
+                            if tem_exclusao:
+                                print(f"    [ERRO] Rejeitada (tem FUNDO/SERVIÇO/SECRETARIA)")
+                                continue
+                            
+                            # SEGUNDO: Procura por MUNICIPIO ou PREFEITURA
+                            if "MUNICIPIO" in texto_linha or "PREFEITURA" in texto_linha:
+                                print(f"    ✅ ENCONTRADA!")
+                                linha_desejada = linha
+                                break
+                                
+                        except Exception as e:
+                            print(f"    Erro: {e}")
+                            pass
+                    
+                    # Se não encontrou com os critérios, usa a primeira linha
+                    if not linha_desejada and todas_as_linhas:
+                        print("\n[AVISO]  Nenhuma linha com PREFEITURA/MUNICIPIO encontrada")
+                        print("   Usando PRIMEIRA linha disponível como fallback...")
+                        linha_desejada = todas_as_linhas[0]
+                        print(f"   Linha selecionada: {linha_desejada.text[:120]}\n")
+                    
+                    # Encontra o botão de expandir (seta) nesta linha
+                    if linha_desejada:
+                        print("🔍 Procurando botão de expandir (seta) na linha selecionada...")
+                        try:
+                            # Procura por QUALQUER seta (up ou down) - vamos verificar depois
+                            seta_btn = linha_desejada.find_element(
+                                By.XPATH,
+                                ".//span[contains(@class, 'fa-chevron')]"
+                            )
+                            
+                            # Verifica se a linha está fechada ou aberta
+                            classes_seta = seta_btn.get_attribute("class")
+                            esta_fechada = "fa-chevron-down" in classes_seta
+                            esta_aberta = "fa-chevron-up" in classes_seta
+                            
+                            if esta_fechada:
+                                print("[OK] Linha está FECHADA - precisamos expandir!")
+                            elif esta_aberta:
+                                print("[AVISO]  Linha já está ABERTA - vamos clicar para FECHAR e depois ABRIR novamente")
+                            
+                            print(f"   Classes do botão: {classes_seta}\n")
+                            
+                        except Exception as e:
+                            print(f"[ERRO] Erro ao encontrar botão de expandir: {e}\n")
+                            seta_btn = None
+                else:
+                    print("[ERRO] Nenhuma linha de agrupamento encontrada!\n")
+                    
+            except Exception as e:
+                print(f"\n[ERRO] Erro ao procurar linhas: {e}")
+                traceback.print_exc()
+
+            # ============================================================
+            # Clica no botão para expandir/recarregar a linha
+            # ============================================================
+            if linha_desejada and seta_btn:
+                try:
+                    print("="*60)
+                    print("EXPANDINDO A LINHA SELECIONADA")
+                    print("="*60 + "\n")
+                    
+                    # Scroll até a linha
+                    self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", seta_btn)
+                    time.sleep(0.5)
+                    
+                    # Verifica se precisa clicar (se está fechada, clica para abrir)
+                    classes_seta = seta_btn.get_attribute("class")
+                    
+                    # Se está aberta (chevron-up), clica para fechar primeiro
+                    if "fa-chevron-up" in classes_seta:
+                        print("Linha está ABERTA - fechando primeiro...")
+                        try:
+                            self.driver.execute_script("arguments[0].click();", seta_btn)
+                            time.sleep(1)
+                            print("[OK] Linha fechada\n")
+                        except Exception as e:
+                            print(f"Aviso: Erro ao fechar linha: {e}\n")
+                    
+                    # Agora clica para ABRIR (ou abre pela primeira vez)
+                    print("Clicando para EXPANDIR a linha...")
+                    try:
+                        ActionChains(self.driver).move_to_element(seta_btn).pause(0.5).click().perform()
+                        print("[OK] Clicado via ActionChains!\n")
+                    except Exception as e1:
+                        print(f"  ActionChains falhou: {str(e1)[:50]}")
+                        print("  Tentando JavaScript...")
+                        try:
+                            self.driver.execute_script("arguments[0].click();", seta_btn)
+                            print("[OK] Clicado via JavaScript!\n")
+                        except Exception as e2:
+                            print(f"[ERRO] JavaScript também falhou: {str(e2)[:50]}\n")
+                            raise
+                    
+                    # Aguarda a linha expandir e os elementos carregarem
+                    print("Aguardando linha expandir e contratos carregarem...")
+                    time.sleep(2)
+                    print("[OK] Linha expandida com sucesso!")
+                    print("="*60 + "\n")
+                    
+                except Exception as e:
+                    print(f"\n[ERRO] Erro ao expandir a linha: {e}")
+                    traceback.print_exc()
+                    raise
+            else:
+                erro_msg = "Não foi possível encontrar "
+                if not linha_desejada:
+                    erro_msg += "linha adequada"
+                elif not seta_btn:
+                    erro_msg += "botão de expansão"
+                print(f"\n[ERRO] {erro_msg}\n")
+                raise Exception(erro_msg)
+
+        except Exception as e:
+            print(f"\n[ERRO] Erro ao acessar o portal: {e}")
+            traceback.print_exc()
+            raise
+
+    def clicar_linha_visualizacao(self, timeout=20):
+        """
+        Após a linha do contrato ser expandida, localiza a linha de detalhe correta e clica no ícone de visualização (olho).
+        """
+        wait = WebDriverWait(self.driver, timeout)
+
+        print("\n" + "="*60)
+        print("CLICANDO NO ÍCONE DE VISUALIZAÇÃO (OLHO)")
+        print("="*60 + "\n")
+
+        time.sleep(1)
+
+        try:
+            html_debug = os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                "debug_linhas_expandidas.html"
+            )
+            with open(html_debug, "w", encoding="utf-8") as f:
+                f.write(self.driver.page_source)
+            print(f"HTML de debug salvo: {html_debug}\n")
+        except Exception as e:
+            print(f"Erro ao salvar HTML debug: {e}\n")
+
+        print("Procurando por ícones de visualização (fa-eye)...")
+        try:
+            eye_icons = self.driver.find_elements(By.XPATH, "//i[contains(@class, 'fa-eye')] | //span[contains(@class, 'fa-eye')]")
+            print(f"[OK] Encontrados {len(eye_icons)} ícones de olho na página\n")
+            
+            if len(eye_icons) > 0:
+                print("Linhas com ícone de olho:")
+                for i, eye in enumerate(eye_icons[:5]):
+                    try:
+                        parent_row = eye.find_element(By.XPATH, "ancestor::tr")
+                        texto_linha = parent_row.text[:100]
+                        print(f"  [{i}] {texto_linha}")
+                    except:
+                        pass
+                print()
+        except Exception as e:
+            print(f"Erro ao listar ícones: {e}\n")
+
+        rows = []
+        print("Buscando linhas de detalhe...")
+        
+        try:
+            rows = self.driver.find_elements(By.XPATH, "//tr[.//i[contains(@class, 'fa-eye')] or .//span[contains(@class, 'fa-eye')]]")
+            print(f"[OK] {len(rows)} linhas encontradas com ícone de olho\n")
+            
+            if not rows:
+                print("Tentando encontrar qualquer linha dentro da tabela...")
+                rows = self.driver.find_elements(By.XPATH, "//tr[contains(@class, 'linha') or contains(@class, 'detail')]")
+                print(f"[OK] {len(rows)} linhas encontradas (alternativo)\n")
+                
+        except Exception as e:
+            print(f"✗ Erro ao encontrar linhas: {e}\n")
+            return False
+
+        if not rows:
+            print("✗ Nenhuma linha de detalhe encontrada!")
+            print("Tentando estratégia alternativa...")
+            try:
+                rows = self.driver.find_elements(By.XPATH, "//tr[not(contains(@class, 'agrupamento'))]")
+                if rows:
+                    print(f"[OK] Encontradas {len(rows)} linhas via estratégia alternativa\n")
+                else:
+                    return False
+            except:
+                return False
+
+        print(f"Escolhendo primeira linha de {len(rows)} disponíveis...")
+        chosen_row = rows[0]
+        
+        try:
+            texto = chosen_row.text
+            print(f"Texto da linha: {texto[:150] if texto else '[linha vazia]'}\n")
+        except:
+            print("[Não conseguiu obter texto da linha]\n")
+
+        print("Fazendo scroll para linha...")
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", chosen_row)
+        time.sleep(0.5)
+
+        print("Procurando ícone de olho dentro da linha...")
+        eye_icon = None
+        try:
+            eye_xpaths = [
+                ".//i[contains(@class, 'fa-eye')]",
+                ".//span[contains(@class, 'fa-eye')]",
+                ".//button[.//i[contains(@class, 'fa-eye')]]",
+                ".//a[.//i[contains(@class, 'fa-eye')]]",
+            ]
+            
+            for xpath in eye_xpaths:
+                try:
+                    elements = chosen_row.find_elements(By.XPATH, xpath)
+                    if elements:
+                        eye_icon = elements[0]
+                        print(f"[OK] Ícone encontrado com: {xpath}\n")
+                        break
+                except:
+                    pass
+        except Exception as e:
+            print(f"Erro ao procurar ícone: {e}\n")
+
+        if not eye_icon:
+            print("[AVISO]  Ícone de olho não encontrado na linha!")
+            print("Tentando encontrar dentro de colunas específicas...")
+            try:
+                tds = chosen_row.find_elements(By.XPATH, ".//td")
+                for td in tds:
+                    try:
+                        eye_icon = td.find_element(By.XPATH, ".//i[contains(@class, 'fa-eye')] | .//span[contains(@class, 'fa-eye')]")
+                        print(f"[OK] Ícone encontrado em td\n")
+                        break
+                    except:
+                        pass
+            except:
+                pass
+
+        if not eye_icon:
+            print("✗ Ainda não conseguiu encontrar ícone!")
+            print("Tentando clicar em qualquer elemento clicável da linha...")
+            try:
+                clickable = chosen_row.find_element(By.XPATH, ".//a | .//button | .//span[contains(@class, 'acao') or contains(@class, 'acoes')]")
+                eye_icon = clickable
+                print("[OK] Elemento clicável encontrado como alternativa\n")
+            except:
+                return False
+
+        print("Tentando clicar no ícone de visualizar...")
+        max_attempts = 3
+        
+        for attempt in range(max_attempts):
+            try:
+                print(f"Tentativa {attempt + 1}/{max_attempts}...")
+                
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", eye_icon)
+                time.sleep(0.2)
+                
+                try:
+                    ActionChains(self.driver).move_to_element(eye_icon).pause(0.35).click().perform()
+                    print(f"[OK] Clicado via ActionChains!\n")
+                    time.sleep(1)
+                    return True
+                except Exception as e1:
+                    print(f"  ActionChains falhou: {str(e1)[:50]}")
+                    
+                    try:
+                        self.driver.execute_script("arguments[0].click();", eye_icon)
+                        print("[OK] Clicado via JavaScript!\n")
+                        time.sleep(1)
+                        return True
+                    except Exception as e2:
+                        print(f"  JavaScript falhou: {str(e2)[:50]}")
+                
+                time.sleep(0.5)
+                
+            except Exception as e:
+                print(f"Erro na tentativa {attempt + 1}: {e}")
+
+        print("✗ Falha ao clicar no ícone após todas as tentativas\n")
+        return False
+
+    def clicar_aba_anexos(self, timeout=15):
+        """
+        Clica na aba "Anexos" dentro do diálogo de visualização do contrato.
+        """
+        wait = WebDriverWait(self.driver, timeout)
+        try:
+            print("\n" + "="*60)
+            print("CLICANDO NA ABA ANEXOS")
+            print("="*60 + "\n")
+            
+            print("Aguardando o diálogo carregar completamente...")
+            time.sleep(3)
+            
+            # Tenta aguardar elementos de carregamento desaparecerem
+            print("Verificando se há elementos de carregamento...")
+            try:
+                loading_elements = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'loading') or contains(@class, 'spinner') or contains(@class, 'aguarde')]")
+                if loading_elements:
+                    print(f"Encontrados {len(loading_elements)} elementos de carregamento, aguardando desaparecerem...")
+                    for elem in loading_elements:
+                        try:
+                            wait.until(EC.invisibility_of_element_located((By.XPATH, f"//*[contains(@class, '{elem.get_attribute('class')}')]")))
+                        except:
+                            pass
+                    print("[OK] Elementos de carregamento desapareceram\n")
+            except:
+                pass
+            
+            time.sleep(1.5)
+            
+            print("Procurando pela aba 'Anexos'...")
+            
+            # XPaths para encontrar a aba Anexos
+            anexos_xpaths = [
+                "//a[contains(., 'Anexos')]",
+                "//span[contains(., 'Anexos')]",
+                "//*[contains(text(), 'Anexos')]",
+                "//li[contains(., 'Anexos')]",
+                "//*[@title='Anexos']",
+            ]
+            
+            aba_anexos = None
+            for xpath in anexos_xpaths:
+                try:
+                    elementos = self.driver.find_elements(By.XPATH, xpath)
+                    for elem in elementos:
+                        try:
+                            if elem.is_displayed():
+                                aba_anexos = elem
+                                print(f"[OK] Aba 'Anexos' encontrada com: {xpath}\n")
+                                break
+                        except:
+                            pass
+                    if aba_anexos:
+                        break
+                except Exception as e:
+                    pass
+            
+            if not aba_anexos:
+                print("✗ Aba 'Anexos' não encontrada!")
+                print("Tentando wait até que apareça...")
+                try:
+                    aba_anexos = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Anexos')]")))
+                    print("[OK] Aba 'Anexos' encontrada após esperar!\n")
+                except:
+                    print("✗ Timeout aguardando aba 'Anexos'\n")
+                    return False
+            
+            print("Fazendo scroll para aba...")
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", aba_anexos)
+            time.sleep(0.3)
+            
+            print("Clicando na aba 'Anexos'...")
+            try:
+                ActionChains(self.driver).move_to_element(aba_anexos).pause(0.3).click().perform()
+                print("[OK] Clicado via ActionChains!\n")
+            except Exception as e1:
+                print(f"ActionChains falhou: {str(e1)[:50]}")
+                try:
+                    self.driver.execute_script("arguments[0].click();", aba_anexos)
+                    print("[OK] Clicado via JavaScript!\n")
+                except Exception as e2:
+                    print(f"JavaScript falhou: {str(e2)[:50]}\n")
+                    return False
+            
+            print("[OK] Aba 'Anexos' clicada com sucesso!")
+            print("="*60 + "\n")
+            time.sleep(2)
+            return True
+            
+        except Exception as e:
+            print(f"Erro em clicar_aba_anexos: {e}\n")
+            traceback.print_exc()
+            return False
+
+    def baixar_pdf_impressao(self, timeout=15):
+        """
+        Encontra qualquer linha na tabela de Anexos, clica nos 3 pontos e depois em 'Baixar'.
+        Aceita qualquer tipo de documento, não apenas 'Impressão'.
+        """
+        wait = WebDriverWait(self.driver, timeout)
+        try:
+            print("\n" + "="*60)
+            print("BAIXANDO PDF DA TABELA DE ANEXOS")
+            print("="*60 + "\n")
+            
+            print("Aguardando a tabela de Anexos carregar completamente...")
+            time.sleep(3)
+            
+            # Salva screenshot antes de tudo
+            try:
+                screenshot_path = os.path.join(
+                    os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                    "debug_antes_clique_3pontos.png"
+                )
+                self.driver.save_screenshot(screenshot_path)
+                print(f"Screenshot salvo: {screenshot_path}\n")
+            except:
+                pass
+            
+            # Tenta aguardar elementos de carregamento desaparecerem
+            print("Verificando se há elementos de carregamento...")
+            try:
+                loading_elements = self.driver.find_elements(By.XPATH, "//*[contains(@class, 'loading') or contains(@class, 'spinner') or contains(@class, 'aguarde')]")
+                if loading_elements:
+                    print(f"Encontrados {len(loading_elements)} elementos de carregamento, aguardando desaparecerem...\n")
+            except:
+                pass
+            
+            time.sleep(1)
+            
+            print("Procurando por linhas na tabela de Anexos...")
+            
+            # Procura qualquer linha na tabela (não apenas "Impressão")
+            # Tentativa 1: Procura por linha com "Impressão" primeiro (se existir)
+            print("1. Procurando linha com 'Impressão'...")
+            impressao_xpaths = [
+                "//tr[contains(., 'Impressão')]",
+                "//tr[contains(., 'Impressao')]",
+                "//tr[.//td[contains(., 'Impressão')]]",
+                "//tr[.//td[contains(., 'Impressao')]]",
+            ]
+            
+            pdf_row = None
+            for xpath in impressao_xpaths:
+                try:
+                    elementos = self.driver.find_elements(By.XPATH, xpath)
+                    if elementos:
+                        pdf_row = elementos[0]
+                        print(f"[OK] Linha 'Impressão' encontrada!\n")
+                        break
+                except:
+                    pass
+            
+            # Tentativa 2: Se não encontrou "Impressão", procura primeira linha com dados
+            if not pdf_row:
+                print("2. 'Impressão' não encontrada. Procurando primeira linha disponível...")
+                try:
+                    # Procura a primeira linha da tabela de anexos
+                    table_rows = self.driver.find_elements(By.XPATH, "//table//tr[td]")
+                    if table_rows:
+                        # Ignora cabeçalhos e procura primeira linha com conteúdo
+                        for row in table_rows:
+                            try:
+                                cells = row.find_elements(By.XPATH, "./td")
+                                if len(cells) > 0 and row.text.strip():
+                                    pdf_row = row
+                                    print(f"[OK] Primeira linha da tabela encontrada!")
+                                    print(f"  Conteúdo: {row.text[:100]}\n")
+                                    break
+                            except:
+                                pass
+                except:
+                    pass
+            
+            if not pdf_row:
+                print("✗ Nenhuma linha com dados encontrada na tabela!")
+                print("Salvando HTML para debug...")
+                try:
+                    html_debug = os.path.join(
+                        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                        "debug_html_sem_impressao.html"
+                    )
+                    with open(html_debug, "w", encoding="utf-8") as f:
+                        f.write(self.driver.page_source)
+                    print(f"HTML salvo: {html_debug}\n")
+                except:
+                    pass
+                return False
+            
+            print("[OK] Linha encontrada!")
+            print(f"Texto da linha: {pdf_row.text[:150]}\n")
+            
+            # Faz scroll para garantir visibilidade
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", pdf_row)
+            time.sleep(0.5)
+            
+            print("Procurando pelos 3 pontos (menu) na linha...")
+            
+            # Debug: lista todos os elementos clicáveis na linha
+            print("Debug: Procurando todos os botões/spans da linha...")
+            try:
+                todos_botoes = pdf_row.find_elements(By.XPATH, ".//*[self::button or self::i or self::span or self::a]")
+                print(f"Encontrados {len(todos_botoes)} elementos clicáveis")
+                for i, btn in enumerate(todos_botoes[-5:]):  # Mostra os últimos 5
+                    try:
+                        tag = btn.tag_name
+                        classe = btn.get_attribute("class") or ""
+                        texto = btn.text or ""
+                        print(f"  [{i}] <{tag}> class='{classe}' text='{texto[:30]}'")
+                    except:
+                        pass
+                print()
+            except:
+                pass
+            
+            # Procura pelos 3 pontos - tenta especificamente na última coluna
+            menu_button_xpaths = [
+                ".//td[last()]//button",  # Botão na última coluna
+                ".//td[last()]//i",  # Ícone na última coluna
+                ".//td[last()]//span",  # Span na última coluna
+                ".//button[contains(@class, 'menu') or contains(@class, 'action') or contains(@class, 'dropdown')]",
+                ".//i[contains(@class, 'fa-ellipsis') or contains(@class, 'fa-bars') or contains(@class, 'fa-dots')]",
+                ".//button",  # Fallback: último botão
+            ]
+            
+            menu_button = None
+            for xpath in menu_button_xpaths:
+                try:
+                    elementos = pdf_row.find_elements(By.XPATH, xpath)
+                    if elementos:
+                        # Prefere o último elemento (deve estar no final da linha)
+                        menu_button = elementos[-1]
+                        print(f"[OK] Possível menu encontrado com: {xpath}\n")
+                        break
+                except:
+                    pass
+            
+            if not menu_button:
+                print("✗ Menu button não encontrado!\n")
+                return False
+            
+            print("[OK] Menu button encontrado! Clicando...")
+            
+            # Tenta clicar de várias formas
+            click_success = False
+            
+            # Tentativa 1: ActionChains
+            try:
+                print("Tentativa 1: ActionChains...")
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", menu_button)
+                time.sleep(0.3)
+                ActionChains(self.driver).move_to_element(menu_button).pause(0.3).click().perform()
+                print("[OK] Clicado via ActionChains!\n")
+                click_success = True
+            except Exception as e1:
+                print(f"✗ ActionChains falhou: {str(e1)[:50]}")
+            
+            # Tentativa 2: JavaScript direto
+            if not click_success:
+                try:
+                    print("Tentativa 2: JavaScript click...")
+                    self.driver.execute_script("arguments[0].click();", menu_button)
+                    print("[OK] Clicado via JavaScript!\n")
+                    click_success = True
+                except Exception as e2:
+                    print(f"✗ JavaScript falhou: {str(e2)[:50]}")
+            
+            # Tentativa 3: Focus + Enter
+            if not click_success:
+                try:
+                    print("Tentativa 3: Focus + Enter...")
+                    self.driver.execute_script("arguments[0].focus();", menu_button)
+                    menu_button.send_keys(Keys.RETURN)
+                    print("[OK] Ativado via Focus + Enter!\n")
+                    click_success = True
+                except Exception as e3:
+                    print(f"✗ Focus + Enter falhou: {str(e3)[:50]}\n")
+            
+            if not click_success:
+                print("✗ Nenhum método de clique funcionou!\n")
+                return False
+            
+            print("[OK] Menu clicado! Aguardando menu abrir...")
+            time.sleep(1.5)
+            
+            # Salva screenshot do menu aberto
+            try:
+                screenshot_path = os.path.join(
+                    os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                    "debug_menu_aberto.png"
+                )
+                self.driver.save_screenshot(screenshot_path)
+                print(f"Screenshot do menu salvo: {screenshot_path}\n")
+            except:
+                pass
+            
+            # Procura pelo botão "Baixar"
+            print("Procurando pelo botão 'Baixar'...")
+            
+            baixar_xpaths = [
+                "//*[contains(text(), 'Baixar')]",
+                "//*[normalize-space()='Baixar']",
+                "//a[contains(., 'Baixar')]",
+                "//button[contains(., 'Baixar')]",
+                "//li[contains(., 'Baixar')]",
+                "//*[contains(text(), 'Download')]",
+            ]
+            
+            baixar_button = None
+            for xpath in baixar_xpaths:
+                try:
+                    elementos = self.driver.find_elements(By.XPATH, xpath)
+                    if elementos:
+                        for elem in elementos:
+                            try:
+                                if elem.is_displayed():
+                                    baixar_button = elem
+                                    print(f"[OK] Botão 'Baixar' encontrado com: {xpath}")
+                                    print(f"  Texto: '{elem.text}'\n")
+                                    break
+                            except:
+                                pass
+                        if baixar_button:
+                            break
+                except:
+                    pass
+            
+            if not baixar_button:
+                print("✗ Botão 'Baixar' não encontrado!")
+                print("Salvando HTML com menu aberto...")
+                try:
+                    html_debug = os.path.join(
+                        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                        "debug_html_menu_aberto.html"
+                    )
+                    with open(html_debug, "w", encoding="utf-8") as f:
+                        f.write(self.driver.page_source)
+                    print(f"HTML salvo: {html_debug}\n")
+                except:
+                    pass
+                return False
+            
+            print("[OK] Botão 'Baixar' encontrado! Clicando...")
+            
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", baixar_button)
+            time.sleep(0.3)
+            
+            try:
+                ActionChains(self.driver).move_to_element(baixar_button).pause(0.3).click().perform()
+                print("[OK] Clicado via ActionChains!\n")
+            except Exception as e1:
+                print(f"✗ ActionChains falhou: {str(e1)[:50]}")
+                try:
+                    self.driver.execute_script("arguments[0].click();", baixar_button)
+                    print("[OK] Clicado via JavaScript!\n")
+                except Exception as e2:
+                    print(f"✗ JavaScript falhou: {str(e2)[:50]}\n")
+                    return False
+            
+            print("[OK] Botão 'Baixar' clicado! Download iniciado...")
+            time.sleep(1)
+            
+            # Monitora a pasta para detectar novo arquivo
+            downloads_folder = os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                "Downloads_PDFs"
+            )
+            
+            print(f"\nAguardando arquivo ser baixado em: {downloads_folder}")
+            
+            # Lista arquivos antes
+            arquivos_antes = set(os.listdir(downloads_folder))
+            
+            # Aguarda até 10 segundos pelo novo arquivo
+            for tentativa in range(10):
+                time.sleep(1)
+                arquivos_agora = set(os.listdir(downloads_folder))
+                novos_arquivos = arquivos_agora - arquivos_antes
+                
+                if novos_arquivos:
+                    print(f"\n[OK] Arquivo(s) baixado(s):")
+                    for arquivo in novos_arquivos:
+                        caminho_completo = os.path.join(downloads_folder, arquivo)
+                        tamanho = os.path.getsize(caminho_completo)
+                        print(f"  📄 {arquivo}")
+                        print(f"  📊 Tamanho: {tamanho} bytes")
+                        print(f"  📍 Caminho: {caminho_completo}")
+                    break
+                else:
+                    print(f"  Aguardando... ({tentativa + 1}/10)")
+            
+            print("\n" + "="*60)
+            print("SUCESSO! PDF baixado com sucesso!")
+            print("="*60 + "\n")
+            
+            return True
+            
+        except Exception as e:
+            print(f"\nErro em baixar_pdf_impressao: {e}\n")
+            traceback.print_exc()
+            return False
+
+
+    def run(self):
+        try:
+            self.acessar_portal()
+            ok = self.clicar_linha_visualizacao()
+            if ok:
+                print("[OK] Visualização aberta!\n")
+                time.sleep(1)
+                
+                ok_anexos = self.clicar_aba_anexos()
+                if ok_anexos:
+                    print("[OK] Aba 'Anexos' aberta!\n")
+                    
+                    # Tenta baixar o PDF
+                    ok_download = self.baixar_pdf_impressao()
+                    
+                    if ok_download:
+                        print("\n" + "="*60)
+                        print("PROCESSO CONCLUÍDO COM SUCESSO!")
+                        print("Fechando navegador em 2 segundos...")
+                        print("="*60 + "\n")
+                        time.sleep(2)
+                    else:
+                        print("\n✗ Falha no download.")
+                        print("Pressione Enter para fechar o navegador...")
+                        input()
+                else:
+                    print("\n✗ Falha ao abrir a aba 'Anexos'.")
+                    print("Pressione Enter para fechar o navegador...")
+                    input()
+            else:
+                print("\n✗ Falha ao localizar/clicar a linha de visualização.")
+                print("Pressione Enter para fechar o navegador...")
+                input()
+            
+        except Exception as e:
+            print(f"\n[ERRO] Erro no run: {e}\n")
+            traceback.print_exc()
+            print("Pressione Enter para fechar o navegador...")
+            input()
+        finally:
+            try:
+                self.driver.quit()
+                print("\n[OK] Navegador fechado com sucesso!\n")
+            except Exception:
+                pass

@@ -1,0 +1,102 @@
+  [0] 'FUNDO MUNICIPAL DA INFÂNCIA E DA ADOLESCÊNCIA DE SÃO JOSÉ'
+       aria-label: 'FUNDO MUNICIPAL DA INFÂNCIA E DA ADOLESCÊNCIA DE SÃO JOSÉ'
+       UPPER: 'FUNDO MUNICIPAL DA INFÂNCIA E DA ADOLESCÊNCIA DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [1] 'FUNDO MUNICIPAL DE CULTURA E TURISMO DE SÃO JOSÉ'
+       aria-label: 'FUNDO MUNICIPAL DE CULTURA E TURISMO DE SÃO JOSÉ'
+       UPPER: 'FUNDO MUNICIPAL DE CULTURA E TURISMO DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [2] 'FUNDAÇÃO EDUCACIONAL DE SAO JOSE'
+       aria-label: 'FUNDAÇÃO EDUCACIONAL DE SAO JOSE'
+       UPPER: 'FUNDAÇÃO EDUCACIONAL DE SAO JOSE'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? False
+  [3] 'FUNDO MUNICIPAL DE ASSISTENCIA SOCIAL DE SAO JOSE'
+       aria-label: 'FUNDO MUNICIPAL DE ASSISTENCIA SOCIAL DE SAO JOSE'
+       UPPER: 'FUNDO MUNICIPAL DE ASSISTENCIA SOCIAL DE SAO JOSE'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [4] 'MUNICÍPIO DE SÃO JOSÉ'
+       aria-label: 'MUNICÍPIO DE SÃO JOSÉ'
+       UPPER: 'MUNICÍPIO DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? False
+  [5] 'FUNDO MUNICIPAL DO IDOSO'
+       aria-label: 'FUNDO MUNICIPAL DO IDOSO'
+       UPPER: 'FUNDO MUNICIPAL DO IDOSO'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [6] 'FUNDO MUNIC. DE HABITACAO DE SAO JOSE'
+       aria-label: 'FUNDO MUNIC. DE HABITACAO DE SAO JOSE'
+       UPPER: 'FUNDO MUNIC. DE HABITACAO DE SAO JOSE'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [7] 'FUNDO DE REPARELHAMENTO DA PROCURADORIA GERAL'
+       aria-label: 'FUNDO DE REPARELHAMENTO DA PROCURADORIA GERAL'
+       UPPER: 'FUNDO DE REPARELHAMENTO DA PROCURADORIA GERAL'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [8] 'FUNDO MUNICIPAL DE SAÚDE DE SÃO JOSÉ'
+       aria-label: 'FUNDO MUNICIPAL DE SAÚDE DE SÃO JOSÉ'
+       UPPER: 'FUNDO MUNICIPAL DE SAÚDE DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [9] 'FUNDO MUNICIPAL DO MEIO AMBIENTE DE SAO JOSE'
+       aria-label: 'FUNDO MUNICIPAL DO MEIO AMBIENTE DE SAO JOSE'
+       UPPER: 'FUNDO MUNICIPAL DO MEIO AMBIENTE DE SAO JOSE'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [10] 'SAO JOSE PREVIDENCIA'
+       aria-label: 'SAO JOSE PREVIDENCIA'
+       UPPER: 'SAO JOSE PREVIDENCIA'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? False
+  [11] 'FUNDO MUNICIPAL DE SANEAMENTO BASICO DE SAO JOSE'
+       aria-label: 'FUNDO MUNICIPAL DE SANEAMENTO BASICO DE SAO JOSE'
+       UPPER: 'FUNDO MUNICIPAL DE SANEAMENTO BASICO DE SAO JOSE'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [12] 'FUNDO MUNICIPAL ANTI DROGAS DE SÃO JOSÉ'
+       aria-label: 'FUNDO MUNICIPAL ANTI DROGAS DE SÃO JOSÉ'
+       UPPER: 'FUNDO MUNICIPAL ANTI DROGAS DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [13] 'FUNDO MUNICIPAL DE EMERGÊNCIA DA DEFESA CIVIL DE SÃO JOSÉ'
+       aria-label: 'FUNDO MUNICIPAL DE EMERGÊNCIA DA DEFESA CIVIL DE SÃO JOSÉ'
+       UPPER: 'FUNDO MUNICIPAL DE EMERGÊNCIA DA DEFESA CIVIL DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? True
+  [14] 'FUNDACAO MUNICIPAL DE ESPORTES DE SAO JOSE'
+       aria-label: 'FUNDACAO MUNICIPAL DE ESPORTES DE SAO JOSE'
+       UPPER: 'FUNDACAO MUNICIPAL DE ESPORTES DE SAO JOSE'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? False
+  [15] 'SECRETARIA DA CASA CIVIL DE SÃO JOSÉ'
+       aria-label: 'SECRETARIA DA CASA CIVIL DE SÃO JOSÉ'
+       UPPER: 'SECRETARIA DA CASA CIVIL DE SÃO JOSÉ'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? False
+  [16] 'FUNDACAO MUNICIPAL DO MEIO AMBIENTE E DESENVOLVIMENTO SUSTENTAVEL'
+       aria-label: 'FUNDACAO MUNICIPAL DO MEIO AMBIENTE E DESENVOLVIMENTO SUSTENTAVEL'
+       UPPER: 'FUNDACAO MUNICIPAL DO MEIO AMBIENTE E DESENVOLVIMENTO SUSTENTAVEL'
+       startswith MUNICIPIO? False
+       startswith PREFEITURA? False
+       contem FUNDO? False
